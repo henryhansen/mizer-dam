@@ -1,0 +1,11 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+data/
+mizer_figures/
+mizer_output/
+sensitivity_figures/
+function_figures/
+other_output/
+other_scripts/

@@ -1,0 +1,255 @@
+---
+title: "_8_Sensitivity_Analysis"
+author: "Henry Hansen"
+date: '2022-02-07'
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(mizer)
+library(mizerExperimental)
+```
+
+
+```{r}
+noMort <- readRDS("data/noMort.rds")
+coded_params <- noMort
+```
+
+
+```{r}
+# # # set external mortality rate to 0.15 for all species
+morts <- getExtMort(coded_params)
+morts[morts<1] <- 0.15
+coded_params@mu_b <- morts
+
+# matchbiomass ------------------------------------------------------------
+# create params generator function
+
+generate <- function(init_params) {
+  coded_params <- init_params
+
+
+exp_params <- matchBiomasses(coded_params)
+
+# plot(exp_params)
+# plotBiomassObservedVsModel(exp_params)
+# getReproductionLevel(exp_params)
+# 
+# 
+steady_params <- steady(exp_params)
+# plot(steady_params)
+# plotBiomassObservedVsModel(steady_params)
+# getReproductionLevel(steady_params)
+
+
+
+# cycle through calibration -----------------------------------------------
+
+
+cycle_params <- steady_params |> calibrateBiomass() |> matchBiomasses() |> steady() |>
+  calibrateBiomass() |> matchBiomasses() |> steady() |>
+  calibrateBiomass() |> matchBiomasses() |> steady() |>
+  calibrateBiomass() |> matchBiomasses() |> steady()
+
+
+# plotBiomassObservedVsModel(cycle_params)
+cycle_params@species_params$erepro
+# plotGrowthCurves(cycle_params, species_panel = TRUE)
+getReproductionLevel(cycle_params)
+# plot(x = log10(species_params(cycle_params)$w_inf),
+#      y = log10(getRDI(cycle_params)/getRDD(cycle_params)))
+# text(x = log10(species_params(cycle_params)$w_inf),
+#      y = log10(getRDI(cycle_params)/getRDD(cycle_params)),
+#      labels=cycle_params@species_params$species)
+
+# plot(cycle_params)
+# plotBiomass(project(cycle_params, t_max = 500))
+
+
+# # setbeverton holt --------------------------------------------------------
+
+#consider fixing erepro and preserving it and tuning only the ones that are going extinct (Eel and bullhead)
+
+test <- setBevertonHolt(cycle_params, erepro = c(10, #
+                                                 1,
+                                                 0.1,
+                                                 0.001,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 0.1,
+                                                 1,
+                                                 0.001))  # original value 0.1
+
+
+
+test <- steady(test, preserve = c("erepro"))
+
+# plotBiomassObservedVsModel(test)
+test@species_params$erepro
+# plot(x = log10(species_params(test)$w_inf),
+#      y = log10(getRDI(test)/getRDD(test)))
+# text(x = log10(species_params(test)$w_inf),
+#      y = log10(getRDI(test)/getRDD(test)),
+#      labels=test@species_params$species)
+# round(getReproductionLevel(test),3)
+
+# plot(project(test, effort = 3))
+
+
+
+# final param -------------------------------------------------------------
+
+final_params <- projectToSteady(test, t_max = 250, progress_bar = F, tol = 0.001) 
+
+return(final_params)
+
+}
+
+out <- generate(coded_params)
+
+```
+
+
+
+```{r, fig.show='hide'}
+
+#generate 20 new mizer params based on new mort values
+
+# new <- generate(coded_params)
+
+mort_values <- seq(0.01, 0.5, length.out = 20)
+
+new <- list()
+
+for (i in 1:length(mort_values)){
+  
+  morts <- getExtMort(coded_params)
+  morts[morts<1] <- mort_values[i]
+  coded_params@mu_b <- morts
+  
+  new[[i]] <- generate(coded_params)
+  cat(i, "is finished")
+}
+
+```
+
+
+```{r}
+source("_6_plotting_functions.R")
+
+new_proj <- list()
+
+for (i in 1:length(mort_values)) {
+  new_proj[[i]] <- project(new[[i]])
+}
+
+nm_plots <- comm_plot(new_proj,out,values = mort_values, LFI_label = "Proportion of big fish")
+
+ggsave(file = "sensitivity_figures/natural_mortality_effects.png",
+       nm_plots,
+       units = "px",
+       height = 2000,
+       width = 2000)
+
+
+zm <- mizerExperimental::plotDeath(new_proj[[1]])
+
+ggsave(file = "sensitivity_figures/death1.png",
+       zm,
+       units = "px",
+       height = 2000,
+       width = 3000)
+
+
+am <- mizerExperimental::plotDeath(new_proj[[20]])
+
+ggsave(file = "sensitivity_figures/death20.png",
+       am,
+       units = "px",
+       height = 2000,
+       width = 3000)
+```
+
+
+
+
+
+
+
+
+
+```{r}
+
+# dddext <- function(listofsens,out) {
+#   start <- data.frame(species = species_params(out)$species,
+#                   RDI = getRDI(out),
+#                   RDD = getRDD(out),
+#                   L_inf = linf)
+#   
+#   datalist <- list()
+#   for (i in 1:length(listofsens)) {
+#   datalist[[i]]  <- data.frame(species = species_params(listofsens[[i]])$species,
+#                   RDI = getRDI(listofsens[[i]]),
+#                   RDD = getRDD(listofsens[[i]]),
+#                   L_inf = linf)
+#   }
+#   combined <- do.call(rbind, datalist)
+#   full <- rbind(start,combined)
+# }
+# 
+# test <- dddext(new,out)
+# 
+# 
+# ddd <- data.frame(species = species_params(final_params)$species,
+#                   RDI = getRDI(final_params),
+#                   RDD = getRDD(final_params),
+#                   L_inf = linf)
+# 
+# dddplot <- ggplot(ddd, aes(x = log10(linf), y = log10(RDI/RDD))) +
+#   geom_point(aes(color = species)) + 
+#   theme_minimal() + 
+#   labs(x = expression(paste("log10(","L",infinity," [cm])")), 
+#        y = "log10(RDI/RDD)")  +
+#   theme(legend.position="none") +
+#   geom_label_repel(aes(label = species,
+#                    color = species),
+#                    fill = 'white',
+#                    size = 3.5,
+#                    min.segment.length = 0.1) +
+#   scale_colour_manual(values = getColours(final_params)[ddd$species]) +
+#   scale_fill_manual(values = getColours(final_params)[ddd$species])+
+#   scale_y_continuous(limits = c(-1,7))
+```
+
+
+
+```{r}
+
+# library(tidyverse)
+# mort_bios <- lapply(new, getBiomass)
+# 
+# mbdf <- as.data.frame(do.call(cbind, mort_bios))
+# 
+# mbdf <- rownames_to_column(mbdf,var = "Species")
+# 
+# mbdf <- gather(mbdf, "Mortality","Biomass", -Species)
+# 
+# mbdf$Mortality <- rep(mort_values,  each = 18)
+# 
+# ggplot(data = mbdf, aes(x = Mortality, y = log10(Biomass), color = factor(Species))) +
+#   geom_point()
+  
+```
+
